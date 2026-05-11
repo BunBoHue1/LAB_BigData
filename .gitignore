@@ -1,4 +1,7 @@
 venv/
+venv_wsl/
 __pycache__/
 *.ipynb_checkpoints/
 .DS_Store
+graphx_checkpoint/
+Untitled.ipynb
