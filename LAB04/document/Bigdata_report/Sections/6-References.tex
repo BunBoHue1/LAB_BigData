@@ -1,0 +1,36 @@
+\section*{Tài nguyên và Mã nguồn}
+\addcontentsline{toc}{section}{Tài nguyên và Mã nguồn}
+
+\subsection*{Mã nguồn}
+
+Notebook triển khai đầy đủ các bài tập:
+
+\begin{center}
+\texttt{LAB04/Lab04-Ex.ipynb}
+\end{center}
+
+Hướng dẫn chạy:
+
+\begin{verbatim}
+# 1. Khởi động Docker Kafka
+docker compose up -d
+
+# 2. Kích hoạt môi trường ảo
+source venv/bin/activate
+
+# 3. Mở JupyterLab
+jupyter lab
+
+# 4. Mở và chạy toàn bộ: LAB04/Lab04-Ex.ipynb (Run All Cells)
+\end{verbatim}
+
+\subsection*{Tài liệu tham khảo}
+
+\begin{enumerate}
+    \item Apache Software Foundation, \textit{Apache Spark MLlib Guide}, \url{https://spark.apache.org/docs/latest/ml-guide.html}, 2024.
+    \item F. M. Harper and J. A. Konstan, ``The MovieLens Datasets: History and Context,'' \textit{ACM Transactions on Interactive Intelligent Systems}, vol. 5, no. 4, pp. 1--19, 2015.
+    \item Y. Hu, Y. Koren, and C. Volinsky, ``Collaborative Filtering for Implicit Feedback Datasets,'' \textit{IEEE ICDM}, 2008. (Nền tảng thuật toán ALS)
+    \item S. Robertson, ``Understanding Inverse Document Frequency: On Theoretical Arguments for IDF,'' \textit{Journal of Documentation}, vol. 60, no. 5, 2004.
+    \item Apache Software Foundation, \textit{Apache Kafka Documentation}, \url{https://kafka.apache.org/documentation}, 2024.
+    \item Databricks, \textit{Spark: The Definitive Guide}, O'Reilly Media, 2018.
+\end{enumerate}

@@ -1,0 +1,473 @@
+\section{Hiện thực các bài tập}
+
+\subsection{Exercise 0 -- Chuẩn bị dữ liệu phim từ Kafka}
+
+\subsubsection{Luồng dữ liệu}
+
+Dữ liệu MovieLens được tải về qua \texttt{kagglehub}, chuyển sang Spark DataFrame, đẩy vào 3 Kafka topic (\texttt{Lab1\_ratings}, \texttt{Lab1\_movies}, \texttt{Lab1\_tags}), sau đó đọc lại theo batch với schema đã định nghĩa. Quy trình này tái sử dụng hoàn toàn pattern từ Lab 01/02.
+
+\subsubsection{Schema định nghĩa}
+
+\begin{lstlisting}[style=PythonStyle, caption={Định nghĩa schema cho 3 topic Kafka}]
+ratings_schema = StructType([
+    StructField("userId",    IntegerType()),
+    StructField("movieId",   IntegerType()),
+    StructField("rating",    DoubleType()),
+    StructField("timestamp", LongType())
+])
+movies_schema = StructType([
+    StructField("movieId", IntegerType()),
+    StructField("title",   StringType()),
+    StructField("genres",  StringType())
+])
+tags_schema = StructType([
+    StructField("userId",    IntegerType()),
+    StructField("movieId",   IntegerType()),
+    StructField("tag",       StringType()),
+    StructField("timestamp", LongType())
+])
+\end{lstlisting}
+
+\subsubsection{Đọc dữ liệu từ Kafka}
+
+\begin{lstlisting}[style=PythonStyle, caption={Hàm đọc batch từ Kafka và parse JSON}]
+def read_from_kafka(topic, schema):
+    return (spark.read
+        .format("kafka")
+        .option("kafka.bootstrap.servers", BROKERS)
+        .option("subscribe", topic)
+        .option("startingOffsets", "earliest")
+        .load()
+        .select(from_json(col("value").cast("string"), schema).alias("data"))
+        .select("data.*"))
+
+ratings_df = read_from_kafka("Lab1_ratings", ratings_schema)
+movies_df  = read_from_kafka("Lab1_movies",  movies_schema)
+tags_df    = read_from_kafka("Lab1_tags",    tags_schema)
+\end{lstlisting}
+
+\subsubsection{Kết quả}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|r|l|}
+\hline
+\textbf{DataFrame} & \textbf{Số dòng} & \textbf{Các cột} \\
+\hline
+\texttt{ratings\_df} & 100.836 & userId, movieId, rating (double), timestamp (long) \\
+\hline
+\texttt{movies\_df}  & 9.742   & movieId, title, genres \\
+\hline
+\texttt{tags\_df}    & 3.683   & userId, movieId, tag, timestamp (long) \\
+\hline
+\end{tabular}
+\caption{Thống kê dữ liệu sau khi đọc từ Kafka}
+\end{table}
+
+Ví dụ dữ liệu đọc được:
+
+\begin{verbatim}
+=== Movies ===
++-------+-----------------------+-------------------------------------------+
+|movieId|title                  |genres                                     |
++-------+-----------------------+-------------------------------------------+
+|1      |Toy Story (1995)       |Adventure|Animation|Children|Comedy|Fantasy|
+|2      |Jumanji (1995)         |Adventure|Children|Fantasy                 |
+|3      |Grumpier Old Men (1995)|Comedy|Romance                             |
++-------+-----------------------+-------------------------------------------+
+\end{verbatim}
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Exercise 1 -- Phân loại nhị phân: Người dùng có đánh giá $\geq 4$?}
+
+\subsubsection{Đặt vấn đề}
+
+Bài toán được phát biểu như sau: dựa trên thông tin về người dùng, bộ phim, và lịch sử đánh giá, dự đoán liệu đánh giá tiếp theo có $\geq 4$ điểm (nhãn 1) hay không (nhãn 0).
+
+\subsubsection{Feature Engineering}
+
+Nhãn và các đặc trưng được xây dựng như sau:
+
+\begin{lstlisting}[style=PythonStyle, caption={Tạo nhãn và các đặc trưng tổng hợp}]
+# Nhãn nhị phân
+labeled = ratings_df.withColumn(
+    "label", when(col("rating") >= 4.0, 1.0).otherwise(0.0))
+
+# Đặc trưng cấp người dùng
+user_stats = ratings_df.groupBy("userId").agg(
+    avg("rating").alias("user_avg_rating"),
+    count("rating").cast("double").alias("user_rating_count"))
+
+# Đặc trưng cấp bộ phim
+movie_stats = ratings_df.groupBy("movieId").agg(
+    avg("rating").alias("movie_avg_rating"),
+    count("rating").cast("double").alias("movie_rating_count"))
+
+# Gộp tags theo từng bộ phim
+movie_tags_agg = tags_df.groupBy("movieId").agg(
+    concat_ws(" ", collect_list("tag")).alias("tags_text"))
+
+# Kết hợp tất cả
+ex1_data = (labeled
+    .join(user_stats,  "userId",  "left")
+    .join(movie_stats, "movieId", "left")
+    .join(movie_tags_agg, "movieId", "left")
+    .join(movies_df.select("movieId","title","genres"), "movieId","left")
+    .fillna({"tags_text": "", ...})
+    .withColumn("text_combined", concat(col("title"), lit(" "), col("tags_text")))
+    .withColumn("genres_tokens", split(col("genres"), "\\|")))
+\end{lstlisting}
+
+\subsubsection{Xây dựng Pipeline}
+
+Pipeline gồm 7 stage được kết nối tuần tự:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|c|l|l|}
+\hline
+\textbf{Stage} & \textbf{Tên} & \textbf{Mô tả} \\
+\hline
+0 & \texttt{Tokenizer} & Tách \texttt{text\_combined} (tiêu đề + tags) thành mảng từ \\
+\hline
+1 & \texttt{CountVectorizer} & Bag-of-words, vocabSize=500, minDF=2 \\
+\hline
+2 & \texttt{IDF} & Chuẩn hóa TF-IDF \\
+\hline
+3 & \texttt{CountVectorizer} & Mã hóa multi-hot cho \texttt{genres\_tokens}, minDF=1 \\
+\hline
+4 & \texttt{VectorAssembler} & Ghép text\_idf, genres\_vec, 4 đặc trưng số \\
+\hline
+5 & \texttt{StandardScaler} & Chuẩn hóa về trung bình 0, phương sai 1 \\
+\hline
+6 & \texttt{LogisticRegression} & maxIter=20, regParam=0.01 \\
+\hline
+\end{tabular}
+\caption{Các stage trong Classification Pipeline}
+\end{table}
+
+\begin{lstlisting}[style=PythonStyle, caption={Khai báo và xây dựng pipeline phân loại}]
+tokenizer = Tokenizer(inputCol="text_combined", outputCol="text_tokens")
+cv_text   = CountVectorizer(inputCol="text_tokens", outputCol="text_vec",
+                             minDF=2.0, vocabSize=500)
+idf_text  = IDF(inputCol="text_vec", outputCol="text_idf")
+cv_genres = CountVectorizer(inputCol="genres_tokens", outputCol="genres_vec",
+                             minDF=1.0)
+assembler = VectorAssembler(
+    inputCols=["text_idf", "genres_vec",
+               "user_avg_rating", "user_rating_count",
+               "movie_avg_rating", "movie_rating_count"],
+    outputCol="features_raw", handleInvalid="skip")
+scaler    = StandardScaler(inputCol="features_raw", outputCol="features")
+lr        = LogisticRegression(featuresCol="features", labelCol="label",
+                               maxIter=20, regParam=0.01)
+
+ex1_pipeline = Pipeline(stages=[tokenizer, cv_text, idf_text,
+                                 cv_genres, assembler, scaler, lr])
+\end{lstlisting}
+
+\subsubsection{Huấn luyện và Đánh giá}
+
+Dữ liệu được chia theo tỉ lệ 80/20 với seed=42:
+
+\begin{lstlisting}[style=PythonStyle, caption={Huấn luyện và tính toán chỉ số đánh giá}]
+train_ex1, test_ex1 = ex1_data.randomSplit([0.8, 0.2], seed=42)
+ex1_model   = ex1_pipeline.fit(train_ex1)
+predictions = ex1_model.transform(test_ex1)
+
+auc = BinaryClassificationEvaluator(labelCol="label").evaluate(predictions)
+f1  = MulticlassClassificationEvaluator(labelCol="label",
+        predictionCol="prediction", metricName="f1").evaluate(predictions)
+\end{lstlisting}
+
+\textbf{Kết quả đánh giá:}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|r|}
+\hline
+\textbf{Chỉ số} & \textbf{Giá trị} \\
+\hline
+Train size & 80.726 dòng \\
+\hline
+Test size  & 20.110 dòng \\
+\hline
+\textbf{AUC (primary)} & \textbf{0.8111} \\
+\hline
+F1 Score   & 0.7252 \\
+\hline
+\end{tabular}
+\caption{Kết quả phân loại nhị phân (Exercise 1)}
+\end{table}
+
+\textbf{Ma trận nhầm lẫn (Confusion Matrix):}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|c|}
+\hline
+ & \textbf{Dự đoán: 0} & \textbf{Dự đoán: 1} \\
+\hline
+\textbf{Thực tế: 0} & 7.619 (TN) & 2.911 (FP) \\
+\hline
+\textbf{Thực tế: 1} & 2.658 (FN) & 7.070 (TP) \\
+\hline
+\end{tabular}
+\caption{Ma trận nhầm lẫn trên tập kiểm tra (20.110 mẫu)}
+\end{table}
+
+Từ confusion matrix ta tính được: Precision $= 7070/(7070+2911) = 70.8\%$, Recall $= 7070/(7070+2658) = 72.7\%$. Mô hình đạt AUC = 0.81, cho thấy khả năng phân biệt tốt giữa hai lớp.
+
+\subsubsection{Phân tích tín hiệu đặc trưng}
+
+Hệ số Logistic Regression được trích xuất từ pipeline đã huấn luyện và ánh xạ ngược về tên đặc trưng:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|r|l|}
+\hline
+\multicolumn{3}{|c|}{\textbf{Top-10 Positive Signals (dự đoán rating $\geq 4$)}} \\
+\hline
+\textbf{Đặc trưng} & \textbf{Hệ số} & \textbf{Giải thích} \\
+\hline
+\texttt{movie\_avg\_rating} & +1.0189 & Điểm trung bình phim cao → người dùng thích \\
+\texttt{user\_avg\_rating}  & +0.7954 & Người dùng hay cho điểm cao → tiếp tục xu hướng \\
+\texttt{movie\_rating\_count} & +0.0276 & Phim nhiều đánh giá → phổ biến, dễ được yêu thích \\
+\texttt{genre:Drama}         & +0.0264 & Thể loại Drama được đánh giá cao hơn trung bình \\
+\texttt{killer}              & +0.0206 & Tag liên quan đến phim hình sự/thriller được yêu thích \\
+\hline
+\multicolumn{3}{|c|}{\textbf{Top-10 Negative Signals (dự đoán rating $< 4$)}} \\
+\hline
+\textbf{Đặc trưng} & \textbf{Hệ số} & \textbf{Giải thích} \\
+\hline
+\texttt{(2003)}          & --0.0323 & Phim thập niên 2000 bị đánh giá thấp hơn \\
+\texttt{(2007)}          & --0.0290 & Tương tự \\
+\texttt{(2008)}          & --0.0276 & Tương tự \\
+\texttt{(2014)}          & --0.0258 & Phim mới hơn xu hướng đánh giá thấp hơn \\
+\texttt{genre:Children}  & --0.0239 & Thể loại thiếu nhi thường nhận điểm thấp hơn \\
+\hline
+\end{tabular}
+\caption{Top-5 tín hiệu dương và âm mạnh nhất (Logistic Regression coefficients)}
+\end{table}
+
+\textbf{Nhận xét}: Hai đặc trưng số lượng (\texttt{movie\_avg\_rating} và \texttt{user\_avg\_rating}) chi phối mô hình với hệ số lớn hơn hẳn các đặc trưng văn bản. Điều này hợp lý vì rating trung bình là tín hiệu trực tiếp nhất về chất lượng và sở thích. Các tín hiệu âm tính tập trung vào năm sản xuất (phim thập niên 2000--2010 có xu hướng bị đánh giá thấp hơn phim cổ điển), phản ánh hiện tượng ``survivorship bias'' trong tập dữ liệu -- chỉ những phim cũ hay mới được nhớ đến mới được đánh giá.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Exercise 2 -- Phân cụm phim theo thể loại (K-Means + TF-IDF)}
+
+\subsubsection{Đặt vấn đề}
+
+Mục tiêu là nhóm 9.742 bộ phim thành $k$ cụm dựa trên đặc trưng ngữ nghĩa (tag người dùng) và thể loại (genres). Thực hiện với $k \in \{6, 8, 10, 12\}$ và chọn $k$ tốt nhất theo Silhouette Score.
+
+\subsubsection{Feature Engineering}
+
+\begin{lstlisting}[style=PythonStyle, caption={Chuẩn bị đặc trưng cho bài toán phân cụm}]
+# Gộp tags theo từng bộ phim
+movie_tags_clust = tags_df.groupBy("movieId").agg(
+    concat_ws(" ", collect_list("tag")).alias("tags_text"))
+
+movies_clust = (movies_df
+    .join(movie_tags_clust, "movieId", "left")
+    .fillna({"tags_text": ""})
+    .withColumn("genres_tokens", split(col("genres"), "\\|")))
+\end{lstlisting}
+
+\subsubsection{Pipeline Phân cụm}
+
+\begin{lstlisting}[style=PythonStyle, caption={Feature pipeline dùng chung cho tất cả giá trị K}]
+tok_c  = Tokenizer(inputCol="tags_text", outputCol="tags_tokens")
+cv_c   = CountVectorizer(inputCol="tags_tokens", outputCol="tags_vec",
+                          minDF=1.0, vocabSize=500)
+idf_c  = IDF(inputCol="tags_vec",  outputCol="tags_idf")
+cvg_c  = CountVectorizer(inputCol="genres_tokens", outputCol="genres_vec_c",
+                          minDF=1.0)
+asm_c  = VectorAssembler(inputCols=["tags_idf", "genres_vec_c"],
+                          outputCol="features_raw_c", handleInvalid="skip")
+scl_c  = StandardScaler(inputCol="features_raw_c", outputCol="features_c")
+
+base_pipeline = Pipeline(stages=[tok_c, cv_c, idf_c, cvg_c, asm_c, scl_c])
+base_model    = base_pipeline.fit(movies_clust)
+features_df   = base_model.transform(movies_clust)
+
+# Chạy KMeans cho từng K
+for k in [6, 8, 10, 12]:
+    km_model  = KMeans(featuresCol="features_c", k=k, seed=42).fit(features_df)
+    clustered = km_model.transform(features_df)
+    score     = ClusteringEvaluator(featuresCol="features_c",
+                    predictionCol="cluster").evaluate(clustered)
+\end{lstlisting}
+
+\subsubsection{Kết quả Silhouette Score}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|c|r|l|}
+\hline
+\textbf{K} & \textbf{Silhouette Score} & \textbf{Nhận xét} \\
+\hline
+6  & \textbf{0.9096} & \textbf{Tốt nhất -- cụm rất tách biệt} \\
+\hline
+8  & 0.8350 & Giảm nhẹ \\
+\hline
+10 & 0.8364 & Tương đương K=8 \\
+\hline
+12 & --0.0141 & Rất kém -- các cụm chồng lấn nhau \\
+\hline
+\end{tabular}
+\caption{Silhouette Score theo số cụm K (Exercise 2)}
+\end{table}
+
+K=6 cho Silhouette Score cao nhất (0.9096), cho thấy sự tách biệt cụm rất tốt. K=12 đột ngột cho điểm âm, cho thấy quá nhiều cụm so với cấu trúc tự nhiên của dữ liệu.
+
+\subsubsection{Phân tích cụm (K=6)}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|c|r|p{4.5cm}|p{4.5cm}|}
+\hline
+\textbf{Cụm} & \textbf{Kích thước} & \textbf{Top terms} & \textbf{Phim đại diện} \\
+\hline
+0 & 9.734 & genre:Drama, Comedy, Thriller, Action, Romance & Đa dạng thể loại, chiếm đa số \\
+\hline
+1 & 1 & timeline, non-linear, nonlinear, storylines & Pulp Fiction (1994) \\
+\hline
+2 & 1 & hannibal, gothic, disturbing, psychology & Silence of the Lambs (1991) \\
+\hline
+3 & 1 & paranoid, mathematics, insanity, existentialism & Pi (1998) \\
+\hline
+4 & 1 & stunning, marvel, visually, emotional & Avengers: Infinity War (2018) \\
+\hline
+5 & 4 & philosophy, psychological, surreal, dreamlike & Inception, Donnie Darko, Fight Club, Eternal Sunshine \\
+\hline
+\end{tabular}
+\caption{Đặc điểm các cụm với K=6}
+\end{table}
+
+\textbf{Nhận xét}: Kết quả phản ánh đặc điểm của tập dữ liệu MovieLens -- chỉ có 3.683 tags cho 9.742 phim (tỉ lệ phủ thấp). Hầu hết phim không có tag (tags\_text = ``''), khiến 99.9\% phim không thể phân biệt nhau qua đặc trưng văn bản và rơi vào cụm 0. Các phim có nhiều tags đặc sắc (Pulp Fiction, Pi, Silence of the Lambs) tạo thành cụm riêng biệt với Silhouette cao. Cụm 5 gồm 4 phim tư duy phức tạp (Inception, Fight Club...) được nhóm lại chính xác qua tags tương đồng về chủ đề tâm lý học và triết học.
+
+% ─────────────────────────────────────────────────────────────────────────────
+\subsection{Exercise 3 -- Hệ thống gợi ý ALS}
+
+\subsubsection{Đặt vấn đề}
+
+Xây dựng hệ thống gợi ý phim dựa trên lịch sử đánh giá (explicit feedback) của người dùng bằng Alternating Least Squares (ALS).
+
+\subsubsection{Chuẩn bị dữ liệu}
+
+\begin{lstlisting}[style=PythonStyle, caption={Chuẩn bị dữ liệu và chia train/test}]
+als_data = ratings_df.select(
+    col("userId"),
+    col("movieId"),
+    col("rating").cast("float").alias("rating"))
+
+train_rec, test_rec = als_data.randomSplit([0.8, 0.2], seed=42)
+# ALS train: 80.774 | test: 20.062
+\end{lstlisting}
+
+\subsubsection{Cấu hình và Huấn luyện ALS}
+
+\begin{lstlisting}[style=PythonStyle, caption={Cấu hình ALS model}]
+als = ALS(
+    userCol="userId",
+    itemCol="movieId",
+    ratingCol="rating",
+    nonnegative=True,
+    implicitPrefs=False,       # explicit ratings
+    rank=10,                   # so luong nhan to an
+    maxIter=10,
+    regParam=0.1,
+    coldStartStrategy="drop",  # bo qua user/item chua xuat hien trong train
+    seed=42)
+
+als_model = als.fit(train_rec)
+\end{lstlisting}
+
+\subsubsection{Đánh giá mô hình}
+
+\textbf{RMSE:}
+
+\begin{lstlisting}[style=PythonStyle, caption={Tính RMSE trên tập kiểm tra}]
+test_predictions = als_model.transform(test_rec)
+rmse = RegressionEvaluator(metricName="rmse",
+         labelCol="rating", predictionCol="prediction"
+       ).evaluate(test_predictions.filter(col("prediction").isNotNull()))
+# RMSE on test set: 0.8753
+\end{lstlisting}
+
+\textbf{Precision@10:}
+
+\begin{lstlisting}[style=PythonStyle, caption={Tính Precision@10}]
+user_recs = als_model.recommendForAllUsers(10)
+rec_pairs = (user_recs.select("userId", explode("recommendations").alias("rec"))
+    .select("userId", col("rec.movieId").alias("movieId")))
+
+# Relevant = phim trong test set co rating >= 3.5
+relevant = test_rec.filter(col("rating") >= 3.5).select("userId","movieId")
+
+hits = (rec_pairs.join(relevant, ["userId","movieId"])
+        .groupBy("userId").count().withColumnRenamed("count","hits"))
+# Precision@10: 0.0023 (tren 604 users co it nhat 1 relevant item)
+\end{lstlisting}
+
+\textbf{Kết quả đánh giá:}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|r|}
+\hline
+\textbf{Chỉ số} & \textbf{Giá trị} \\
+\hline
+Train size       & 80.774 dòng \\
+\hline
+Test size        & 20.062 dòng \\
+\hline
+\textbf{RMSE}    & \textbf{0.8753} \\
+\hline
+Precision@10     & 0.0023 (604 users) \\
+\hline
+\end{tabular}
+\caption{Kết quả đánh giá ALS (Exercise 3)}
+\end{table}
+
+RMSE = 0.8753 trên thang điểm 0.5--5.0 cho thấy mô hình dự đoán sai trung bình khoảng 0.87 điểm, đây là kết quả chấp nhận được với cấu hình đơn giản (rank=10, maxIter=10). Precision@10 thấp (0.0023) do cold-start: nhiều user/item trong test set không xuất hiện trong train set, cùng với việc MovieLens Small có thưa thớt dữ liệu đánh giá.
+
+\subsubsection{Top-10 gợi ý cho 3 người dùng ngẫu nhiên}
+
+\begin{lstlisting}[style=PythonStyle, caption={Tạo gợi ý cho 3 user}]
+random_users     = train_rec.select("userId").distinct().limit(3)
+user_recs_named  = (als_model.recommendForUserSubset(random_users, 10)
+    .select("userId", explode("recommendations").alias("rec"))
+    .select("userId", col("rec.movieId").alias("movieId"),
+            col("rec.rating").alias("pred_rating"))
+    .join(movies_df.select("movieId","title","genres"), "movieId","left"))
+\end{lstlisting}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|c|l|r|}
+\hline
+\textbf{User} & \textbf{Top phim được gợi ý} & \textbf{Pred. Rating} \\
+\hline
+\multirow{5}{*}{1} & Saving Face (2004) & 5.99 \\
+ & Seve (2014) & 5.81 \\
+ & The Big Bus (1976) & 5.81 \\
+ & Victory (a.k.a. Escape to Victory) (1981) & 5.64 \\
+ & Hello, Dolly! (1969) & 5.57 \\
+\hline
+\multirow{5}{*}{2} & Reign Over Me (2007) & 4.99 \\
+ & Saving Face (2004) & 4.94 \\
+ & The Jinx: Life and Deaths of Robert Durst (2015) & 4.88 \\
+ & Love and Death (1975) & 4.85 \\
+ & Half Nelson (2006) & 4.72 \\
+\hline
+\multirow{5}{*}{3} & Phantasm II (1988) & 5.14 \\
+ & Death Race 2000 (1975) & 4.95 \\
+ & Alien Contamination (1980) & 4.95 \\
+ & Troll 2 (1990) & 4.91 \\
+ & Saturn 3 (1980) & 4.78 \\
+\hline
+\end{tabular}
+\caption{Top-5 phim được gợi ý cho 3 người dùng (trích từ top-10)}
+\end{table}
+
+\textbf{Nhận xét}: Kết quả gợi ý phản ánh rõ sở thích cá nhân của từng người dùng. User 1 nhận được các phim hài-lãng mạn (Saving Face, Hello Dolly) và phim thể thao (Seve, Victory). User 2 thiên về phim tâm lý-drama (Reign Over Me, Half Nelson). User 3 nhận được các phim kinh dị sci-fi thập niên 1970--1980 (Phantasm II, Death Race 2000, Alien Contamination), cho thấy ALS đã nắm bắt được sở thích thể loại đặc thù của từng người dùng.

@@ -1,0 +1,44 @@
+\section{Cơ sở lý thuyết}
+
+\subsection{SparkML Pipeline}
+
+SparkML chuẩn hóa luồng làm việc học máy thông qua khái niệm \textbf{Pipeline} -- một chuỗi các bước xử lý dữ liệu được thực thi tuần tự. Pipeline gồm hai loại thành phần:
+
+\begin{itemize}
+    \item \textbf{Transformer}: Biến đổi DataFrame thành DataFrame mới (ví dụ: \texttt{Tokenizer}, \texttt{VectorAssembler}, \texttt{StandardScaler}).
+    \item \textbf{Estimator}: Học tham số từ dữ liệu và tạo ra một Transformer (ví dụ: \texttt{LogisticRegression.fit()} tạo ra \texttt{LogisticRegressionModel}).
+\end{itemize}
+
+\subsection{Các thành phần Feature Engineering}
+
+\subsubsection{Tokenizer và CountVectorizer + IDF (TF-IDF)}
+
+\textbf{Tokenizer} tách chuỗi văn bản thành danh sách từ. \textbf{CountVectorizer} xây dựng bag-of-words bằng cách đếm tần số xuất hiện của từng từ trong tài liệu, tạo ra vector thưa (sparse vector). \textbf{IDF} (Inverse Document Frequency) chuẩn hóa lại trọng số: từ xuất hiện trong nhiều tài liệu sẽ nhận trọng số thấp hơn, làm nổi bật các từ đặc trưng của từng tài liệu.
+
+$$\text{TF-IDF}(t, d) = \text{TF}(t,d) \times \log\frac{N}{|\{d : t \in d\}|}$$
+
+\subsubsection{VectorAssembler và StandardScaler}
+
+\textbf{VectorAssembler} ghép nhiều cột (cả dạng số và vector thưa) thành một cột vector duy nhất -- yêu cầu bắt buộc của hầu hết các mô hình SparkML. \textbf{StandardScaler} chuẩn hóa từng chiều về trung bình 0 và phương sai đơn vị, giúp gradient descent hội tụ nhanh hơn.
+
+\subsection{Các thuật toán được sử dụng}
+
+\subsubsection{Logistic Regression (Phân loại nhị phân)}
+
+Logistic Regression mô hình hóa xác suất nhãn $y=1$ qua hàm sigmoid:
+
+$$P(y=1 \mid \mathbf{x}) = \frac{1}{1 + e^{-(\mathbf{w}^\top \mathbf{x} + b)}}$$
+
+Tham số $\mathbf{w}$ (vector hệ số) và $b$ (bias) được tối ưu bằng L-BFGS. Hệ số $w_i > 0$ có nghĩa đặc trưng $i$ dự báo nhãn dương tính, $w_i < 0$ dự báo nhãn âm tính.
+
+\subsubsection{K-Means Clustering}
+
+KMeans phân nhóm $N$ điểm dữ liệu thành $k$ cụm bằng cách tối thiểu hóa tổng bình phương khoảng cách từ mỗi điểm đến tâm cụm gần nhất. Chất lượng phân cụm được đánh giá bằng \textbf{Silhouette Score} $\in [-1, 1]$: giá trị càng cao cho thấy các cụm càng tách biệt và gọn gàng.
+
+\subsubsection{ALS -- Alternating Least Squares}
+
+ALS là phương pháp collaborative filtering dựa trên matrix factorization. Ma trận đánh giá $R$ (users $\times$ items) được xấp xỉ bởi tích hai ma trận ẩn:
+
+$$R \approx U \cdot V^\top, \quad U \in \mathbb{R}^{m \times k},\; V \in \mathbb{R}^{n \times k}$$
+
+Thuật toán lần lượt cố định $V$ tối ưu $U$, rồi cố định $U$ tối ưu $V$ cho đến hội tụ. Độ chính xác được đo bằng \textbf{RMSE} (Root Mean Square Error) trên tập kiểm tra.

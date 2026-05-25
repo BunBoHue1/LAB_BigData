@@ -1,0 +1,17 @@
+\section{Hướng phát triển}
+
+\subsection{Cải thiện chất lượng mô hình}
+
+\begin{itemize}
+    \item \textbf{Exercise 1 -- Phân loại}: Thêm đặc trưng thời gian (giờ/ngày đánh giá), thể loại phim yêu thích của user, và lịch sử đánh giá gần nhất. Thử nghiệm Random Forest hoặc Gradient Boosted Trees thay thế Logistic Regression để bắt được quan hệ phi tuyến.
+    \item \textbf{Exercise 2 -- Phân cụm}: Bổ sung dữ liệu tag từ nhiều nguồn khác (IMDb keywords, plot keywords) để tăng độ phủ. Thử nghiệm DBSCAN hoặc LDA (Latent Dirichlet Allocation) thay thế KMeans để tìm cụm có hình dạng bất kỳ và tự động xác định số cụm.
+    \item \textbf{Exercise 3 -- Gợi ý}: Tăng \texttt{rank} (số nhân tố ẩn) và \texttt{maxIter}; áp dụng Cross Validation để tối ưu \texttt{regParam}. Kết hợp ALS với content-based filtering (dùng kết quả TF-IDF từ Ex2) để giải quyết bài toán cold-start.
+\end{itemize}
+
+\subsection{Mở rộng sang Streaming ML}
+
+Spark ML hiện tại chạy ở chế độ batch. Hướng mở rộng tự nhiên là kết hợp với Spark Structured Streaming (như đã làm ở Lab 02) để thực hiện \textbf{inference theo thời gian thực}: mô hình được huấn luyện sẵn sẽ dự đoán rating ngay khi người dùng xem phim, phục vụ hệ thống gợi ý realtime.
+
+\subsection{Triển khai trên Cluster}
+
+Thay \texttt{local[*]} bằng Spark Standalone Cluster hoặc YARN cluster để xử lý tập dữ liệu lớn hơn (MovieLens 25M hoặc Netflix Prize dataset với 100M ratings). Điều này đòi hỏi cấu hình thêm executor memory, shuffle partition, và broadcast join threshold.

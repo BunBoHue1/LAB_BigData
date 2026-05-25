@@ -1,0 +1,40 @@
+\section{Giới thiệu}
+
+\subsection{Bối cảnh}
+
+Trong thời đại dữ liệu lớn, việc xây dựng các mô hình học máy trên tập dữ liệu quy mô lớn đòi hỏi một nền tảng tính toán phân tán mạnh mẽ. Apache Spark ML (SparkML) cung cấp một thư viện học máy hoàn chỉnh, được xây dựng trên nền tảng DataFrame, cho phép các nhà khoa học dữ liệu xây dựng và triển khai mô hình ở quy mô lớn một cách hiệu quả.
+
+Lab 04 tập trung vào việc vận dụng SparkML để giải quyết các bài toán học máy cổ điển trên bộ dữ liệu \textbf{MovieLens Latest Small} -- một tập dữ liệu phổ biến trong cộng đồng nghiên cứu hệ thống gợi ý, bao gồm 100.836 lượt đánh giá phim từ 610 người dùng cho 9.742 bộ phim.
+
+\subsection{Mục tiêu}
+
+Báo cáo này trình bày kết quả thực hiện \textbf{4 bài tập} (Exercise 0--3) của Lab 04:
+
+\begin{itemize}
+    \item \textbf{Exercise 0}: Đọc và chuẩn bị dữ liệu phim từ Apache Kafka.
+    \item \textbf{Exercise 1}: Xây dựng mô hình phân loại nhị phân -- dự đoán liệu người dùng có đánh giá phim $\geq 4$ điểm hay không.
+    \item \textbf{Exercise 2}: Phân cụm phim theo thể loại bằng KMeans kết hợp TF-IDF.
+    \item \textbf{Exercise 3}: Xây dựng hệ thống gợi ý phim bằng thuật toán Alternating Least Squares (ALS).
+\end{itemize}
+
+\subsection{Dataset và Hạ tầng}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Thành phần} & \textbf{Chi tiết} \\
+\hline
+Dataset & MovieLens Latest Small (kagglehub: \texttt{grouplens/movielens-latest-small}) \\
+\hline
+Apache Spark & PySpark 4.0.1, chế độ \texttt{local[*]}, bộ nhớ driver 4~GB \\
+\hline
+Apache Kafka & 3 broker cục bộ (\texttt{localhost:9092,9192,9292}), Confluent 7.4.0 \\
+\hline
+Kafka Topics & \texttt{Lab1\_ratings}, \texttt{Lab1\_movies}, \texttt{Lab1\_tags} \\
+\hline
+Môi trường & WSL2/Ubuntu, Python 3.12, JupyterLab \\
+\hline
+\end{tabular}
+\caption{Hạ tầng thực hiện Lab 04}
+\end{table}

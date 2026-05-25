@@ -1,0 +1,38 @@
+\documentclass[a4paper]{article}
+\usepackage{hcmut}
+\thesislayout
+
+% Python listing style
+\lstdefinestyle{PythonStyle}{
+    backgroundcolor=\color{backgroundColour},
+    commentstyle=\color{mGreen},
+    keywordstyle=\color{blue},
+    numberstyle=\tiny\color{mGray},
+    stringstyle=\color{mPurple},
+    basicstyle=\footnotesize\ttfamily,
+    breakatwhitespace=false,
+    breaklines=true,
+    captionpos=b,
+    keepspaces=true,
+    numbers=left,
+    numbersep=5pt,
+    showspaces=false,
+    showstringspaces=false,
+    showtabs=false,
+    tabsize=2,
+    language=Python
+}
+
+% Override footer từ hcmut.sty
+\fancyfoot[L]{\scriptsize \ttfamily Báo cáo Dữ liệu lớn (CO3137) -- HK252}
+
+\begin{document}
+
+\include{Sections/1-Title}
+\include{Sections/2-Introduction}
+\include{Sections/3-Theory}
+\include{Sections/4-Solution}
+\include{Sections/5-FutureWork}
+\include{Sections/6-References}
+
+\end{document}
